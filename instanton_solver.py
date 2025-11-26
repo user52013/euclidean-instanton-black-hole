@@ -1,6 +1,6 @@
 import numpy as np
 from math import sin, cos
-from scipy.integrate import solve_ivp, simps
+from scipy.integrate import solve_ivp, simpson
 from scipy.optimize import root_scalar
 
 # Physical constants and parameters
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     p_b_vals = sol_dense(tau_samples)[2]
     p_c_vals = sol_dense(tau_samples)[3]
     # Integrate p_b vs b and p_c vs c
-    S_bulk = 4.0 * np.pi * (simps(p_b_vals, b_vals) + simps(p_c_vals, c_vals))
+    S_bulk = 4.0 * np.pi * (simpson (p_b_vals, b_vals) + simpson (p_c_vals, c_vals))
     # Boundary action via canonical boundary data (Eq. (V.18) in Sec. V, Appendix D)
     S_boundary = (p_b_end * b_end - p_b0_solution * gamma) / (G * gamma)
     # Total Euclidean action (bulk + boundary)
