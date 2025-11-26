@@ -5,9 +5,6 @@
 #
 # Usage:
 #     python scan_SE.py > scan_output.txt
-#
-# The output can be analyzed to extract scaling behavior S_E ~ M^{2 + δ_eff}
-# and to compare with Bekenstein-Hawking entropy 4π M^2.
 
 import numpy as np
 from instanton_solver import find_shooting_solution, solve_instanton, compute_actions
