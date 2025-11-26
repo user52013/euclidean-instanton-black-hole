@@ -233,7 +233,7 @@ def scan_parameters(M_list, delta_list, bracket=None):
 if __name__ == "__main__":
     # Example parameters
     M = 30.0
-    delta = 0.03
+    delta = 0.05
 
     print(f"--- Euclidean instanton solver: M={M}, delta={delta} ---")
 
@@ -266,3 +266,29 @@ if __name__ == "__main__":
 
     except Exception as e:
         print("ERROR during instanton solve:", e)
+
+
+
+# ... (代碼末尾)
+
+if __name__ == "__main__":
+    # ... (代碼執行邏輯) ...
+    
+    # 打印計算出的動作量
+    print(f"  S_E          = {S_E:.10e}")
+
+    # --- 關鍵的數值驗證 (供 CI 系統使用) ---
+    # 論文 V.E 節報告的數值： S_E ≈ 11333 (假設 M=30, delta=0.05)
+    EXPECTED_S_E = 11333.0 
+    # 設置一個極小的相對容差（例如，10^-4%）
+    TOLERANCE = 1e-6 
+    
+    # 使用 numpy 進行精確比較
+    if np.abs(S_E - EXPECTED_S_E) / EXPECTED_S_E < TOLERANCE:
+        print("\n[CI_VALIDATION] SUCCESS: Computed S_E matches expected value (within tolerance).")
+        import sys
+        sys.exit(0) # 成功退出
+    else:
+        print(f"\n[CI_VALIDATION] FAILED: Computed S_E {S_E} does not match expected {EXPECTED_S_E}")
+        import sys
+        sys.exit(1) # 失敗退出
