@@ -1,224 +1,369 @@
-import sys
-from typing import Dict, Tuple, List
 import numpy as np
-from numpy import sin, cos, sqrt, pi
-# [修正點 1]: 將 simps 替換為現代名稱 simpson，解決 ImportError
-from scipy.integrate import solve_ivp, simpson
+from numpy import sin, cos
+
+from scipy.integrate import solve_ivp
+try:
+    # Newer SciPy: simpson is the supported 1D Simpson integrator
+    from scipy.integrate import simpson as _simpson
+except ImportError:
+    # Fallback: use numpy.trapz if simpson is not available
+    def _simpson(y, x):
+        return np.trapz(y, x)
+
 from scipy.optimize import root_scalar
 
-# ----------------------------------------------------------------------
-# Physical constants (Planck units; G = 1)
-# ----------------------------------------------------------------------
-G = 1.0
-gamma = 0.2375  # Barbero–Immirzi parameter
-# ----------------------------------------------------------------------
-# Helper function for Polymerization
-# ----------------------------------------------------------------------
-def f_delta(x: np.ndarray, delta: float) -> np.ndarray:
-    """Shorthand for the polymer function sin(delta * x) / delta."""
-    # 防止 delta=0 時除以零，但對於實際的 delta>0 運行環境，通常不需要。
-    return sin(delta * x) / delta
+# -----------------------------------------------------
+# Physical constants
+# -----------------------------------------------------
+G = 1.0          # Gravitational constant (in units where G = 1)
+gamma = 0.2375   # Barbero–Immirzi parameter
 
-# ----------------------------------------------------------------------
-# Euclidean equations of motion (polymerized)
-# State vector: u = [b_E, c_E, p_b, p_c]
-# ----------------------------------------------------------------------
-def eom_tau(tau: float, u: np.ndarray, M: float, delta: float) -> np.ndarray:
-    """
-    Euclidean equations of motion for the polymer-corrected KS interior.
-    """
-    bE, cE, p_b, p_c = u
-    
-    # db_E / dτ = (1/G) * f_delta(cE, delta)
-    db_dtau = (1.0 / G) * f_delta(cE, delta)
-    
-    # dc_E / dτ = (1/G) * bE * cos(delta * cE)
-    dc_dtau = (1.0 / G) * (bE * cos(delta * cE))
-    
-    # dp_b / dτ = - (1/(2G)) * sin(2 * delta * bE) / delta
-    dpb_dtau = -(1.0 / (2.0 * G)) * sin(2.0 * delta * bE) / delta
-    
-    # dp_c / dτ = (1/(2G)) * p_b^2 / p_c^2
-    pc_abs = np.abs(p_c) + 1e-18 
-    dpc_dtau = (1.0 / (2.0 * G)) * (p_b**2 / (pc_abs**2)) 
-    
-    return np.array([db_dtau, dc_dtau, dpb_dtau, dpc_dtau])
 
-# ----------------------------------------------------------------------
-# Event function (Horizon matching condition)
-# ----------------------------------------------------------------------
-def horizon_event(tau: float, u: np.ndarray, M: float, delta: float) -> float:
+# -----------------------------------------------------
+# Euclidean equations of motion
+# -----------------------------------------------------
+def eom_tau(tau, u, M, delta):
     """
-    Event function for solve_ivp: p_b(tau) = (2GM)^2 at the horizon tau_H.
-    """
-    p_b = u[2]
-    target_pbH = (2.0 * G * M) ** 2
-    
-    return p_b - target_pbH
+    Euclidean equations of motion (EOM) for the polymer-corrected
+    Kantowski–Sachs interior.
 
-horizon_event.terminal = True 
-horizon_event.direction = 0 
+    Parameters
+    ----------
+    tau : float
+        Euclidean time parameter τ_E.
+    u : array_like, shape (4,)
+        State vector [b_E, c_E, p_b, p_c].
+    M : float
+        Black hole mass.
+    delta : float
+        Polymer scale (same for b_E and c_E in this implementation).
 
-# ----------------------------------------------------------------------
-# ODE Solver Wrapper
-# ----------------------------------------------------------------------
-def solve_instanton(M: float, delta: float, p_b0: float) -> solve_ivp:
+    Returns
+    -------
+    du_dtau : list[float]
+        Time derivatives [db_E/dτ, dc_E/dτ, dp_b/dτ, dp_c/dτ].
     """
-    Solves the Euclidean EOM from tau=0 up to the horizon tau_H.
+    b_E, c_E, p_b, p_c = u
+
+    # Polymer-substituted connections
+    fb = sin(delta * b_E) / delta
+    fc = sin(delta * c_E) / delta
+
+    # The specific form here matches the minisuperspace Hamiltonian
+    # used in Sec. III–V.  We keep the same structure as in the
+    # previous versions of this file so as not to change the physics.
+    #
+    # db_E / dτ_E
+    db_dtau = (1.0 / G) * fc
+
+    # dc_E / dτ_E
+    dc_dtau = (1.0 / G) * b_E * cos(delta * c_E)
+
+    # dp_b / dτ_E
+    dpb_dtau = -(1.0 / (2.0 * G)) * sin(2.0 * delta * b_E) / delta
+
+    # dp_c / dτ_E
+    # (same structure as older version; depends only on p_b, p_c)
+    if p_c != 0.0:
+        dpc_dtau = (1.0 / (2.0 * G)) * (p_b ** 2) / (p_c ** 2)
+    else:
+        # Avoid division by zero in pathological cases
+        dpc_dtau = 0.0
+
+    return [db_dtau, dc_dtau, dpb_dtau, dpc_dtau]
+
+
+# -----------------------------------------------------
+# Horizon event: b_E = 2 G M
+# -----------------------------------------------------
+def _make_horizon_event(M):
     """
-    # Initial conditions at tau=0 (bounce surface)
-    bE0 = 0.0
-    cE0 = 0.0
-    pc0 = 2.0 * pi * gamma**2 
-    
-    u0 = np.array([bE0, cE0, p_b0, pc0])
-    
-    tau_max = 200.0  # Max integration time 
-    
+    Factory for the horizon event function b_E - 2 G M = 0.
+    The returned function has the signature required by solve_ivp.
+    """
+
+    def horizon_event(tau, u, M_arg, delta_arg):
+        # We ignore M_arg, delta_arg here because we close over M.
+        b_E = u[0]
+        return b_E - 2.0 * G * M
+
+    horizon_event.terminal = True
+    horizon_event.direction = +1.0
+    return horizon_event
+
+
+# -----------------------------------------------------
+# Core ODE integration: solve_instanton
+# -----------------------------------------------------
+def solve_instanton(M, delta, p_b0,
+                    tau_max=200.0,
+                    rtol=1e-10,
+                    atol=1e-12):
+    """
+    Integrate the Euclidean EOM from the bounce to the horizon.
+
+    Parameters
+    ----------
+    M : float
+        Black hole mass.
+    delta : float
+        Polymer scale.
+    p_b0 : float
+        Initial momentum p_b(0) at the bounce.
+    tau_max : float, optional
+        Maximum Euclidean integration time.
+    rtol, atol : float, optional
+        Relative and absolute tolerances for solve_ivp.
+
+    Returns
+    -------
+    sol : OdeResult
+        SciPy solve_ivp solution object.
+    """
+    # Bounce initial data
+    b0 = gamma          # minimal radius scale
+    c0 = 0.0
+    p_c0 = gamma ** 2
+    u0 = [b0, c0, p_b0, p_c0]
+
+    horizon_event = _make_horizon_event(M)
+
+    # Integrate Euclidean EOM
     sol = solve_ivp(
-        eom_tau,
+        fun=eom_tau,
         t_span=(0.0, tau_max),
         y0=u0,
-        method='RK45', 
-        events=horizon_event, 
-        args=(M, delta), 
-        rtol=1e-12, 
-        atol=1e-12, 
+        method="Radau",         # stiff, A-stable
+        events=horizon_event,
+        args=(M, delta),
+        rtol=rtol,
+        atol=atol,
     )
+
     return sol
 
-# ----------------------------------------------------------------------
-# Shooting Target Function
-# ----------------------------------------------------------------------
-def shooting_target(p_b0: float, M: float, delta: float) -> float:
+
+# -----------------------------------------------------
+# Shooting residual for horizon matching
+# -----------------------------------------------------
+def shooting_residual(p_b0, M, delta):
     """
-    Target function for the root solver: residual at the horizon.
-    Returns: p_b(tau_H) - (2GM)^2
+    Residual function used in the shooting method.
+
+    We require p_b(τ_H) = (2 G M)^2 at the horizon τ_H.
     """
+
     try:
         sol = solve_instanton(M, delta, p_b0)
-        
-        # Check if the horizon was reached (event triggered)
-        if len(sol.t_events[0]) == 0:
-            # If the solver did not hit the horizon, return a large residual
-            return 1e50 
-            
-        p_bH = sol.y[2, -1]
+
+        # If horizon event not reached, penalize strongly
+        if (sol.t_events is None or len(sol.t_events) == 0 or
+                len(sol.t_events[0]) == 0):
+            return 1e6
+
+        uH = sol.y[:, -1]
+        p_bH = uH[2]
         target = (2.0 * G * M) ** 2
-        
-        residual = p_bH - target
-        return residual
-        
-    except Exception as e:
-        # If the ODE solver fails completely, return a large residual
-        return 1e50 
 
-# ----------------------------------------------------------------------
-# Root Finder (Shooting Method)
-# ----------------------------------------------------------------------
-def find_shooting_solution(M: float, delta: float) -> float:
-    """
-    Uses the shooting method (root_scalar) to find the initial momentum p_b(0).
-    """
-    # 尋根範圍擴大，解決 'does not contain a sign change' 錯誤。
-    bracket = (50.0, 1000.0) 
+        return p_bH - target
 
-    print(f"  Using bracket for p_b(0): {bracket}")
-    
-    # 執行尋根
-    result = root_scalar(
-        shooting_target,
-        args=(M, delta),
-        bracket=bracket, 
+    except Exception:
+        # Any numerical failure is treated as very bad residual
+        return 1e6
+
+
+# -----------------------------------------------------
+# Find initial momentum p_b(0) via robust root finding
+# -----------------------------------------------------
+def find_shooting_solution(M,
+                           delta,
+                           bracket=(10.0, 500.0),
+                           rtol=1e-8,
+                           maxiter=50):
+    """
+    Determine the correct initial p_b(0) such that the
+    horizon condition p_b(τ_H) = (2 G M)^2 is satisfied.
+
+    Parameters
+    ----------
+    M : float
+        Black hole mass.
+    delta : float
+        Polymer scale.
+    bracket : tuple(float, float), optional
+        Initial bracketing interval for root_scalar.
+    rtol : float, optional
+        Relative tolerance for the root.
+    maxiter : int, optional
+        Maximum number of iterations.
+
+    Returns
+    -------
+    p_b0 : float
+        Converged initial momentum at the bounce.
+    """
+    def f(p_b0):
+        return shooting_residual(p_b0, M, delta)
+
+    root_result = root_scalar(
+        f,
+        bracket=bracket,
         method="brentq",
-        xtol=1e-12,
-        rtol=1e-10,
-        maxiter=100,
+        rtol=rtol,
+        maxiter=maxiter
     )
-    
-    if not result.converged:
-        raise RuntimeError(
-            f"Shooting method failed to converge. Status: {result.flag}. "
-            f"Final residual: {shooting_target(result.root, M, delta):.3e}"
-        )
-        
-    return result.root
 
-# ----------------------------------------------------------------------
-# Action Calculation (S_E = S_bulk + S_GHY)
-# ----------------------------------------------------------------------
-def compute_actions(sol: solve_ivp, M: float, delta: float, p_b0: float) -> Tuple[float, float]:
+    if not root_result.converged:
+        raise RuntimeError(
+            f"Shooting did not converge for M={M}, delta={delta} "
+            f"within bracket={bracket}"
+        )
+
+    return root_result.root
+
+
+# -----------------------------------------------------
+# Euclidean action: bulk + boundary (GHY) consistency
+# -----------------------------------------------------
+def compute_actions(sol, M, delta, p_b0):
     """
-    Computes the Renormalized Euclidean Action (S_E) and Bulk Action (S_bulk)
-    based on the canonical action integral and the GHY boundary term.
+    Compute the bulk canonical action S_bulk and the full Euclidean
+    action S_E (including the polymer-corrected GHY boundary term).
+
+    Parameters
+    ----------
+    sol : OdeResult
+        Solution object from solve_instanton.
+    M : float
+        Black hole mass.
+    delta : float
+        Polymer parameter.
+    p_b0 : float
+        Initial momentum at the bounce.
+
+    Returns
+    -------
+    S_E : float
+        Full on-shell Euclidean action.
+    S_bulk : float
+        Canonical bulk action ∫ (p_b db_E + p_c dc_E) dτ_E.
     """
-    
     tau = sol.t
-    bE, cE, p_b, p_c = sol.y
-    
-    # 1. 計算 S_bulk 的積分項 (Integrand)
-    # 積分項 = p_b*dot(b_E) + p_c*dot(c_E)
-    # 其中 dot(b_E) 和 dot(c_E) 來自 EOM (見 eom_tau 函數)
-    
-    # dot(b_E) = (1/G) * f_delta(c_E, delta)
-    dot_bE = (1.0 / G) * f_delta(cE, delta)
-    
-    # dot(c_E) = (1/G) * b_E * cos(delta * c_E)
-    dot_cE = (1.0 / G) * bE * np.cos(delta * cE)
-    
-    # 積分項
-    integrand = p_b * dot_bE + p_c * dot_cE
-    
-    # 2. Bulk Action (S_bulk)
-    # 使用修正後的 simpson 函數進行數值積分
-    S_bulk = simpson(integrand, tau)
-    
-    # 3. Boundary Term (S_GHY) at the horizon (tau_H = tau[-1])
-    # S_GHY = - (1 / (G * gamma)) * |p_c(tau_H)| * f_delta(c_E(tau_H), delta)
-    cE_H = cE[-1]
-    pc_H = p_c[-1]
-    
-    S_GHY = -(1.0 / (G * gamma)) * np.abs(pc_H) * f_delta(cE_H, delta)
-    
-    # 4. Total Euclidean Action
-    S_E = S_bulk + S_GHY
-    
+    b_E = sol.y[0]
+    c_E = sol.y[1]
+    p_b = sol.y[2]
+    p_c = sol.y[3]
+
+    # Numerical derivatives db_E/dτ_E, dc_E/dτ_E
+    db_dtau = np.gradient(b_E, tau)
+    dc_dtau = np.gradient(c_E, tau)
+
+    # Canonical bulk action via 1D high-order quadrature
+    integrand = p_b * db_dtau + p_c * dc_dtau
+    S_bulk = _simpson(integrand, tau)
+
+    # Polymer-corrected GHY term at the horizon
+    uH = sol.y[:, -1]
+    c_EH = uH[1]
+    p_cH = uH[3]
+
+    # K_E^(delta) ~ (2/gamma) sin(delta c_E) / delta
+    S_GHY = -(np.abs(p_cH) / (G * gamma)) * (sin(delta * c_EH) / delta)
+
+    # Canonical boundary term at the bounce:
+    # p_b(0) b_E(0) with b_E(0) = gamma
+    S_bounce = (p_b0 * gamma) / (G * gamma)
+
+    # Consistent with the derivation in Appendix D:
+    # full Euclidean action combines bulk + boundary pieces.
+    S_E = S_bulk + S_GHY - S_bounce
+
     return S_E, S_bulk
 
-# ----------------------------------------------------------------------
-# Example run (CI Validation Block)
-# ----------------------------------------------------------------------
-if __name__ == "__main__":
-    
-    # 確保所有變量在 try 區塊外初始化
-    S_E = np.nan
-    S_bulk = np.nan
-    p_b0 = np.nan 
 
-    # 基準測試參數
+# Backwards compatibility wrapper
+def compute_full_action(sol, M, delta, p_b0):
+    """
+    Wrapper for older code that expected compute_full_action.
+    """
+    return compute_actions(sol, M, delta, p_b0)
+
+
+# -----------------------------------------------------
+# Parameter scan over (M, delta)
+# -----------------------------------------------------
+def scan_parameters(M_list, delta_list,
+                    bracket=(10.0, 500.0)):
+    """
+    Systematically scan the (M, delta) parameter space and
+    return a list of (M, delta, S_E) dictionaries.
+
+    This is meant to support the fits S_E ∝ M^{2+δ_eff}
+    discussed in Sec. V.D.
+
+    Parameters
+    ----------
+    M_list : iterable of float
+        List of black hole masses.
+    delta_list : iterable of float
+        List of polymer scales.
+    bracket : tuple(float, float), optional
+        Initial bracket for shooting in each (M, delta) pair.
+
+    Returns
+    -------
+    results : list of dict
+        Each element has keys "M", "delta", "S_E", "S_bulk".
+    """
+    results = []
+
+    for M in M_list:
+        for delta in delta_list:
+            p_b0 = find_shooting_solution(M, delta, bracket=bracket)
+            sol = solve_instanton(M, delta, p_b0)
+            S_E, S_bulk = compute_actions(sol, M, delta, p_b0)
+
+            results.append({
+                "M": M,
+                "delta": delta,
+                "S_E": S_E,
+                "S_bulk": S_bulk,
+            })
+
+    return results
+
+
+# -----------------------------------------------------
+# Example run + CI validation
+# -----------------------------------------------------
+if __name__ == "__main__":
+    import sys
+
+    # Example parameters matching Sec. V.E
     M = 30.0
-    delta = 0.05 
+    delta = 0.05
+
     print(f"--- Euclidean instanton solver: M={M}, delta={delta} ---")
-    
+
+    p_b0 = None
+
     try:
-        # A. 尋找初始條件
-        print("\n[Shooting] Attempting to find p_b(0) via shooting...")
-        p_b0 = find_shooting_solution(M, delta) 
-        
-        # B. 求解 ODE
+        # A. Shooting to find p_b(0)
+        print("\n[Shooting] Attempting to find p_b(0)...")
+        p_b0 = find_shooting_solution(M, delta, bracket=(10.0, 500.0))
         print(f"  Found p_b(0) = {p_b0:.10e}")
+
+        # B. Integrate EOM
         sol = solve_instanton(M, delta, p_b0)
-        
-        # C. 計算作用量 (使用實際的計算邏輯)
+
+        # C. Compute actions
         S_E, S_bulk = compute_actions(sol, M, delta, p_b0)
-        
-        # D. 結果打印
-        if len(sol.t_events[0]) == 0:
-            tau_H = np.nan
+
+        # D. Summary
+        if sol.t_events is None or len(sol.t_events) == 0 or len(sol.t_events[0]) == 0:
             print("Warning: horizon event was not detected.")
         else:
-            tau_H = sol.t_events[0][0]
-            print(f"Horizon reached at τ_H = {tau_H:.10e}")
+            print(f"Horizon reached at τ_H = {sol.t_events[0][0]:.10e}")
 
         bH = sol.y[0, -1]
         p_bH = sol.y[2, -1]
@@ -234,24 +379,27 @@ if __name__ == "__main__":
 
         print("\n[Action Summary]")
         print(f"  S_E (Total)    = {S_E:.10e}")
-        print(f"  S_bulk (Int)   = {S_bulk:.10e}")
-        print(f"  S_GHY (Bound)  = {S_E - S_bulk:.10e}")
-        
-        # E. 數值驗證 (供 CI 系統使用)
-        # 由於現在是實際計算，我們仍使用之前穩定的參考值進行比較。
-        EXPECTED_S_E = 11333.0 
-        TOLERANCE = 5.0e-3 # 容忍度設為 0.5%
-        
-        if not np.isnan(S_E) and np.abs(S_E - EXPECTED_S_E) / EXPECTED_S_E < TOLERANCE:
-            print("\n[CI_VALIDATION] SUCCESS: Computed S_E matches expected value (within tolerance).")
-            sys.exit(0) 
+        print(f"  S_bulk (Check) = {S_bulk:.10e}")
+        print(f"  |S_E - S_bulk| = {abs(S_E - S_bulk):.3e}")
+
+        # E. CI validation: compare with expected S_E ≈ 11333
+        EXPECTED_S_E = 11333.0
+        TOLERANCE = 5.0e-5  # 0.005 relative tolerance
+
+        rel_err = np.abs(S_E - EXPECTED_S_E) / EXPECTED_S_E
+
+        if rel_err < TOLERANCE:
+            print("\n[CI_VALIDATION] SUCCESS: "
+                  "Computed S_E matches expected value (within tolerance).")
+            sys.exit(0)
         else:
-            print(f"\n[CI_VALIDATION] FAILED: Computed S_E {S_E:.10e} does not match expected {EXPECTED_S_E:.10e}")
-            sys.exit(1) 
+            print("\n[CI_VALIDATION] FAILED:")
+            print(f"  Computed S_E = {S_E:.10e}")
+            print(f"  Expected S_E = {EXPECTED_S_E:.10e}")
+            print(f"  Relative error = {rel_err:.3e}")
+            sys.exit(1)
 
     except Exception as e:
-        # 捕捉任何失敗 
         print("\n[CRITICAL FAILURE] Test Run Failed.")
         print(f"Actual Error Message: {type(e).__name__}: {e}")
-        print(f"S_E state at failure: {S_E}") 
         sys.exit(1)
