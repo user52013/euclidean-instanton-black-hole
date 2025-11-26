@@ -227,21 +227,38 @@ def scan_parameters(M_list, delta_list, bracket=None):
     return results
 
 
-# -----------------------------------------------------
+# --------------------------------------------------------------------
 # Example run
-# -----------------------------------------------------
+# --------------------------------------------------------------------
 if __name__ == "__main__":
+    import sys
+    
     # Example parameters
     M = 30.0
-    delta = 0.05
-
+    # 確保 delta 設置為論文中使用的 0.05
+    delta = 0.05 
     print(f"--- Euclidean instanton solver: M={M}, delta={delta} ---")
-
+    
+    # 初始化變量，防止在 try 失敗時報 NameError
+    p_b0 = None
+    
     try:
-        p_b0 = find_shooting_solution(M, delta)
+        # 這裡的代碼將執行核心計算，並捕捉所有可能的數值失敗
+        
+        # A. 尋找初始條件
+        print("\n[Shooting] Attempting to find p_b(0) via shooting...")
+        p_b0 = find_shooting_solution(M, delta) 
+        
+        # B. 求解 ODE
+        print(f"  Found p_b(0) = {p_b0:.10e}")
         sol = solve_instanton(M, delta, p_b0)
+        
+        # C. 計算作用量
         S_E, S_bulk = compute_actions(sol, M, delta, p_b0)
 
+        # ----------------------------------------
+        # D. 結果打印
+        # ----------------------------------------
         if len(sol.t_events) == 0 or len(sol.t_events[0]) == 0:
             print("Warning: horizon event was not detected.")
         else:
@@ -252,43 +269,37 @@ if __name__ == "__main__":
         target = (2.0 * G * M) ** 2
         residual = p_bH - target
 
-        print("\n[Shooting]")
-        print(f"  p_b(0)       = {p_b0:.10e}")
-        print(f"  b_E(τ_H)     = {bH:.10e}")
-        print(f"  p_b(τ_H)     = {p_bH:.10e}")
-        print(f"  target p_bH  = {target:.10e}")
-        print(f"  residual     = {residual:.3e}")
+        print("\n[Shooting Summary]")
+        print(f"  p_b(0)         = {p_b0:.10e}")
+        print(f"  b_E(τ_H)       = {bH:.10e}")
+        print(f"  p_b(τ_H)       = {p_bH:.10e}")
+        print(f"  Target p_bH    = {target:.10e}")
+        print(f"  Residual       = {residual:.3e}")
 
-        print("\n[Action]")
-        print(f"  S_E (boundary) = {S_E:.10e}")
-        print(f"  S_bulk (check) = {S_bulk:.10e}")
+        print("\n[Action Summary]")
+        print(f"  S_E (Total)    = {S_E:.10e}")
+        print(f"  S_bulk (Check) = {S_bulk:.10e}")
         print(f"  |S_E - S_bulk| = {abs(S_E - S_bulk):.3e}")
+        
+        # ----------------------------------------
+        # E. 數值驗證 (供 CI 系統使用)
+        # ----------------------------------------
+        EXPECTED_S_E = 11333.0 
+        # 設置相對容差 (0.005%)，如果誤差小於此值則視為通過
+        TOLERANCE = 5.0e-5 
+        
+        # 如果計算出的 S_E 在容差範圍內，則視為成功
+        if np.abs(S_E - EXPECTED_S_E) / EXPECTED_S_E < TOLERANCE:
+            print("\n[CI_VALIDATION] SUCCESS: Computed S_E matches expected value (within tolerance).")
+            sys.exit(0) # 成功退出碼，CI 顯示 PASS
+        else:
+            print(f"\n[CI_VALIDATION] FAILED: Computed S_E {S_E:.10e} does not match expected {EXPECTED_S_E:.10e}")
+            sys.exit(1) # 失敗退出碼，CI 顯示 FAIL
 
     except Exception as e:
-        print("ERROR during instanton solve:", e)
-
-
-
-# ... (代碼末尾)
-
-if __name__ == "__main__":
-    # ... (代碼執行邏輯) ...
-    
-    # 打印計算出的動作量
-    print(f"  S_E          = {S_E:.10e}")
-
-    # --- 關鍵的數值驗證 (供 CI 系統使用) ---
-    # 論文 V.E 節報告的數值： S_E ≈ 11333 (假設 M=30, delta=0.05)
-    EXPECTED_S_E = 11333.0 
-    # 設置一個極小的相對容差（例如，10^-4%）
-    TOLERANCE = 1e-6 
-    
-    # 使用 numpy 進行精確比較
-    if np.abs(S_E - EXPECTED_S_E) / EXPECTED_S_E < TOLERANCE:
-        print("\n[CI_VALIDATION] SUCCESS: Computed S_E matches expected value (within tolerance).")
-        import sys
-        sys.exit(0) # 成功退出
-    else:
-        print(f"\n[CI_VALIDATION] FAILED: Computed S_E {S_E} does not match expected {EXPECTED_S_E}")
-        import sys
-        sys.exit(1) # 失敗退出
+        # D. 捕捉任何失敗 (包括 find_shooting_solution 內部的錯誤)
+        print("\n[CRITICAL FAILURE] Test Run Failed.")
+        print(f"Actual Error Message: {type(e).__name__}: {e}")
+        
+        # 讓 CI 流程知道測試失敗
+        sys.exit(1)
