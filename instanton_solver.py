@@ -1,9 +1,10 @@
 import sys
 import numpy as np
 from numpy import sin, cos
-# [修正]: 使用 simpson 替代 simps 以兼容新版 SciPy，解決 ImportError
+# *** 關鍵修正: 將 simps 替換為 simpson，解決 ImportError ***
 from scipy.integrate import solve_ivp, simpson
 from scipy.optimize import root_scalar
+from typing import Tuple
 
 # ----------------------------------------------------------------------
 # Physical constants (Planck units; G = 1)
@@ -14,19 +15,10 @@ gamma = 0.2375  # Barbero–Immirzi parameter
 # ----------------------------------------------------------------------
 # Euclidean equations of motion (polymerized)
 # ----------------------------------------------------------------------
-def eom_tau(tau, u, M, delta):
+def eom_tau(tau: float, u: np.ndarray, M: float, delta: float) -> np.ndarray:
     """
     Euclidean equations of motion for the polymer-corrected KS interior.
-    Parameters
-    ----------
-    tau : float
-        Euclidean time parameter.
-    u : array_like, shape (4,)
-        Phase space variables [b_E, c_E, p_b, p_c].
-    M : float
-        Black-hole mass.
-    delta : float
-        Polymer scale (delta_b = delta_c = delta).
+    u = [b_E, c_E, p_b, p_c]
     """
     bE, cE, p_b, p_c = u
     
@@ -42,42 +34,36 @@ def eom_tau(tau, u, M, delta):
     else:
         dpc_dtau = (1.0 / (2.0 * G)) * (p_b**2 / (p_c**2))
         
-    return [db_dtau, dc_dtau, dpb_dtau, dpc_dtau]
+    return np.array([db_dtau, dc_dtau, dpb_dtau, dpc_dtau], dtype=float)
 
 # ----------------------------------------------------------------------
 # Horizon event (b_E = 2 G M)
 # ----------------------------------------------------------------------
-def horizon_event(tau, u, M, delta):
-    """
-    Event function locating the matching hypersurface (the "horizon").
-    The event is triggered when b_E reaches 2 G M.
-    """
+def horizon_event(tau: float, u: np.ndarray, M: float, delta: float) -> float:
+    """Event function locating the matching hypersurface (the "horizon")."""
     bE = u[0]
     return bE - 2.0 * G * M
 
-# Mark the event as terminal and only trigger when bE is increasing.
 horizon_event.terminal = True
 horizon_event.direction = +1.0
 
 # ----------------------------------------------------------------------
 # Instanton solver
 # ----------------------------------------------------------------------
-def solve_instanton(M, delta, p_b0, tau_max=200.0):
-    """
-    Integrate the Euclidean EOM from the bounce to the horizon.
-    """
-    # Bounce initial data (Regularity conditions)
+def solve_instanton(M: float, delta: float, p_b0: float, tau_max: float = 200.0):
+    """Integrate the Euclidean EOM from the bounce to the horizon."""
+    # Bounce initial data
     b0 = gamma
     c0 = 0.0
     p_c0 = gamma**2
-    u0 = [b0, c0, p_b0, p_c0]
+    u0 = np.array([b0, c0, p_b0, p_c0], dtype=float)
     
     sol = solve_ivp(
         fun=eom_tau,
         t_span=(0.0, tau_max),
         y0=u0,
         args=(M, delta),
-        method="Radau", # Implicit method for stiffness
+        method="Radau",
         events=horizon_event,
         rtol=1e-10,
         atol=1e-12,
@@ -87,39 +73,34 @@ def solve_instanton(M, delta, p_b0, tau_max=200.0):
 # ----------------------------------------------------------------------
 # Shooting residual
 # ----------------------------------------------------------------------
-def shooting_residual(p_b0, M, delta):
-    """
-    Residual for the shooting method: enforce p_b(τ_H) = (2GM)^2.
-    """
+def shooting_residual(p_b0: float, M: float, delta: float) -> float:
+    """Residual for the shooting method: enforce p_b(τ_H) = (2GM)^2."""
     try:
         sol = solve_instanton(M, delta, p_b0)
         
         # If horizon event was not reached
         if sol.t_events is None or len(sol.t_events[0]) == 0:
-            # Return a large penalty to guide the solver back
-            bH = sol.y[0, -1]
-            return (bH - 2.0 * G * M) * 1e5 
+            # Penalize heavily if the solution is too short
+            return 1e50 
             
         p_bH = sol.y[2, -1]
         target = (2.0 * G * M)**2
         return p_bH - target
     except Exception:
-        return 1e50 # Fallback for solver failures
+        # Return a large residual if the ODE solver crashes
+        return 1e50
 
 # ----------------------------------------------------------------------
-# Automatic Bracket Finder (From Fifth Draft)
+# Automatic Bracket Finder (解決 ValueError)
 # ----------------------------------------------------------------------
-def find_bracket(M, delta, p_min=1.0, num=50):
-    """
-    Automatically search for a bracket [p_left, p_right] with a sign change.
-    This is crucial for robustness when M is large.
-    """
-    # Estimate target scale
+def find_bracket(M: float, delta: float, p_min: float = 1.0, num: int = 50) -> Tuple[float, float]:
+    """Automatically search for a bracket [p_left, p_right] with a sign change."""
     target_pb = (2.0 * G * M)**2
-    p_max = 10.0 * target_pb
+    p_max = 10.0 * target_pb # Search up to 10x the expected target value
     
     print(f"  [Auto-Bracket] Scanning range [{p_min:.1e}, {p_max:.1e}]...")
     
+    # Use logarithmic spacing
     grid = np.logspace(np.log10(p_min), np.log10(p_max), num=num)
     residuals = []
     
@@ -141,19 +122,15 @@ def find_bracket(M, delta, p_min=1.0, num=50):
             print(f"  [Auto-Bracket] Found bracket: [{grid[i]:.2f}, {grid[i+1]:.2f}]")
             return grid[i], grid[i+1]
             
-    raise RuntimeError(f"Could not find a bracket in range [{p_min}, {p_max}].")
+    raise RuntimeError(f"Could not find a bracket in range [{p_min}, {p_max}]. Check parameters.")
 
 # ----------------------------------------------------------------------
 # Root Finder (Shooting Method)
 # ----------------------------------------------------------------------
-def find_shooting_solution(M, delta):
-    """
-    Find the correct initial momentum p_b(0) using auto-bracketing and Brent's method.
-    """
-    # 1. Find a valid bracket first
+def find_shooting_solution(M: float, delta: float) -> float:
+    """Find the correct initial momentum p_b(0)."""
     bracket = find_bracket(M, delta)
     
-    # 2. Refine the root
     result = root_scalar(
         shooting_residual,
         args=(M, delta),
@@ -170,32 +147,27 @@ def find_shooting_solution(M, delta):
     return result.root
 
 # ----------------------------------------------------------------------
-# Euclidean Action Evaluation (Restored from your drafts)
+# Euclidean Action Evaluation (compute_actions)
 # ----------------------------------------------------------------------
-def compute_actions(sol, M, delta, p_b0):
+def compute_actions(sol: solve_ivp, M: float, delta: float, p_b0: float) -> Tuple[float, float]:
     """
-    Compute the on-shell Euclidean action using the canonical boundary expression,
-    and a bulk integral as a consistency check.
-    
-    *** FIXED: Uses 'simpson' instead of 'simps' for SciPy compatibility ***
+    Compute the on-shell Euclidean action S_E (boundary term) and S_bulk (integral).
     """
     tau = sol.t
     bE, cE, p_b, p_c = sol.y
     
-    # Boundary expression: S_E = (1 / (G gamma)) [p_b b_E]_0^{τ_H}
+    # S_E (boundary expression): S_E = (1 / (G gamma)) [p_b b_E]_0^{τ_H}
     bH = bE[-1]
     p_bH = p_b[-1]
     
     # Term at horizon - Term at bounce (b0=gamma)
     S_E_boundary = (1.0 / (G * gamma)) * (p_bH * bH - p_b0 * gamma)
     
-    # Bulk check: integral of p dq
-    # We recompute derivatives using the EOM for accuracy on the grid
+    # S_bulk check: integral of p dq
     db_dtau = np.empty_like(bE)
     dc_dtau = np.empty_like(cE)
     
     for i in range(len(tau)):
-        # Unpack state at step i
         u_i = sol.y[:, i]
         derivs = eom_tau(tau[i], u_i, M, delta)
         db_dtau[i] = derivs[0]
@@ -203,22 +175,19 @@ def compute_actions(sol, M, delta, p_b0):
         
     integrand = p_b * db_dtau + p_c * dc_dtau
     
-    # [FIX] Use simpson instead of simps
+    # *** 關鍵修正: 使用 simpson 函數進行數值積分 ***
     S_bulk = simpson(integrand, x=tau)
     
-    return S_E_boundary, S_bulk
+    return float(S_E_boundary), float(S_bulk)
 
 # ----------------------------------------------------------------------
 # Main Execution (CI/CD Ready)
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     
-    # Initialize variables for safety
     S_E = np.nan
-    S_bulk = np.nan
     p_b0 = np.nan 
 
-    # Parameters from Paper Sec. V.E
     M = 30.0
     delta = 0.05 
     print(f"--- Euclidean instanton solver: M={M}, delta={delta} ---")
@@ -232,30 +201,10 @@ if __name__ == "__main__":
         # B. Solve Trajectory
         sol = solve_instanton(M, delta, p_b0)
         
-        # C. Compute Actions (Using your original logic)
+        # C. Compute Actions
         S_E, S_bulk = compute_actions(sol, M, delta, p_b0)
         
-        # D. Print Results
-        if sol.t_events and len(sol.t_events[0]) > 0:
-            print(f"  Horizon reached at tau_H = {sol.t_events[0][0]:.6f}")
-        else:
-            print("  Warning: Horizon not detected perfectly.")
-            
-        bH = sol.y[0, -1]
-        p_bH = sol.y[2, -1]
-        target = (2.0 * G * M)**2
-        residual = p_bH - target
-
-        print("\n[Results]")
-        print(f"  p_b(τ_H)     = {p_bH:.10e}")
-        print(f"  Target       = {target:.10e}")
-        print(f"  Residual     = {residual:.3e}")
-        print(f"  S_E (Total)  = {S_E:.10e}")
-        print(f"  S_bulk       = {S_bulk:.10e}")
-        print(f"  Diff         = {abs(S_E - S_bulk):.3e}")
-        
-        # E. Numerical Validation for CI
-        # Expected value from paper: 11333.0
+        # D. Numerical Validation for CI
         EXPECTED_S_E = 11333.0 
         TOLERANCE = 5.0e-3 # 0.5% tolerance
         
@@ -273,6 +222,4 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"\n[CRITICAL FAILURE] {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
         sys.exit(1)
