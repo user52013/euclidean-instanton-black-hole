@@ -15,15 +15,15 @@ The solver automatically finds the correct shooting value and prints the matchin
 ________________________________________
 2. What the Script Does
 The main stages are:
-1.	Integrate the Euclidean EOM using an implicit Radau method.
+2.1.	Integrate the Euclidean EOM using an implicit Radau method.
 This avoids stiffness issues that appear for small polymer scales.
-2.	Locate the matching surface ( b_E = 2GM ).
+2.2.	Locate the matching surface ( b_E = 2GM ).
 This is implemented as a zero-crossing event.
-3.	Solve the shooting problem to determine the initial momentum ( p_b(0) ).
+2.3.	Solve the shooting problem to determine the initial momentum ( p_b(0) ).
 The script uses a standard one-dimensional root finder.
-4.	Evaluate the Euclidean action from the canonical boundary expression
+2.4.	Evaluate the Euclidean action from the canonical boundary expression
 derived in Sec. V and Appendix D.
-5.	(Optional) Parameter scans.
+2.5.	(Optional) Parameter scans.
 The script includes a helper routine that can sweep over masses and polymer
 scales. This was used to check the scaling
 [
