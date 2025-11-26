@@ -1,71 +1,70 @@
-READM  for the Euclidean Instanton Black Hole Repository
+________________________________________
+README — Euclidean Instanton Solver for the Polymer-Corrected KS Interior
+This repository contains the Python implementation used in our work on Euclidean instantons in the polymer-corrected Kantowski–Sachs (KS) interior.
+The code integrates the Euclidean equations of motion, applies the horizon matching condition through a shooting procedure, and evaluates the on-shell Euclidean action (including the polymer-corrected GHY term). The numerics follow the scheme described in Sec. V and Appendix C of the paper.
+The goal is to provide a clean and reproducible reference implementation. The script was written to be readable rather than optimized, and it avoids external numerical frameworks beyond numpy and scipy.
+________________________________________
+1. Getting Started
+The code runs on a standard Python scientific stack.
+A minimal environment is:
+python3 -m pip install numpy scipy
+After that, the script can be executed directly:
+python3 instanton_solver.py
+The default run solves the instanton for ( M=30 ) with a reasonable initial guess for ( p_b(0) ).
+The solver automatically finds the correct shooting value and prints the matching accuracy and the resulting Euclidean action.
+________________________________________
+2. What the Script Does
+The main stages are:
+1.	Integrate the Euclidean EOM using an implicit Radau method.
+This avoids stiffness issues that appear for small polymer scales.
+2.	Locate the matching surface ( b_E = 2GM ).
+This is implemented as a zero-crossing event.
+3.	Solve the shooting problem to determine the initial momentum ( p_b(0) ).
+The script uses a standard one-dimensional root finder.
+4.	Evaluate the Euclidean action from the canonical boundary expression
+derived in Sec. V and Appendix D.
+5.	(Optional) Parameter scans.
+The script includes a helper routine that can sweep over masses and polymer
+scales. This was used to check the scaling
+[
+S_E(M,\delta) \sim \alpha_0,M^2\bigl[1 + \kappa_1 \delta + \kappa_2 \delta^2 + \cdots\bigr]
+]
+reported in Sec. V.
+________________________________________
+3. Reproducing Figures and Tables in the Paper
+The output of the code can be used to reproduce:
+•	the mass dependence of the action (( S_E ) vs. ( M )),
+•	the small-( \delta ) scaling discussed in Sec. V.D,
+•	the numerical diagnostics summarized in Appendix C.5.
+For scans, the suggested pattern is:
+from instanton_solver import scan_parameters
 
-This repository implements the computational framework for constructing Euclidean instantons in a reduced minisuperspace model inspired by loop quantum gravity (LQG). These instantons mediate quantum tunneling transitions from black hole interiors to white hole geometries, resolving classical singularities through polymerization corrections. The code directly supports the calculations in the paper "A Euclidean Instanton Connecting Black and White Hole Geometries: Existence, Regularity, and Action in a Reduced Quantum Gravitational Framework" (Paper I of a four-part series). By solving the boundary-value problem (BVP) for the Euclidean equations of motion, the code computes the instanton trajectory and the Euclidean action \(S_E(M)\), which determines the tunneling rate and black hole lifetime scaling.
+M_list     = [10, 20, 30, 40, 60]
+delta_list = [0.01, 0.03, 0.05]
 
-This setup draws on fundamental concepts in black hole thermodynamics (e.g., Wick rotation for path integrals) and cosmology (e.g., bounce mechanisms avoiding big bang singularities), ensuring mathematical rigor through stiff ODE solvers and shooting methods.
+results = scan_parameters(M_list, delta_list)
+The returned dictionary contains, for each pair ((M,\delta)):
+•	the converged shooting value ( p_b(0) ),
+•	the horizon radius,
+•	the Euclidean action,
+•	the bulk contribution (useful for cross-checks).
+This is the same information used to generate the plots that appear in Sec. V.
+________________________________________
+4. Notes on Numerical Accuracy
+The solver was written to follow the convergence tests described in Appendix C.
+A few practical comments may be helpful for anyone extending or modifying the code:
+•	The Radau method is noticeably more stable than RK45 for this system.
+•	The horizon event becomes sensitive when ( \delta ) is small; tightening tolerances can help.
+•	The action is evaluated from boundary data rather than a bulk numerical integral, which avoids the noise associated with differentiating the trajectory.
+•	The shooting root finder usually converges quickly if the mass is not too small; for Planck-scale masses the dynamics become sharper and sometimes require a better initial guess.
+In general, the code should reproduce our published results to within the quoted precision.
+________________________________________
+5. Citing the Code
+If you use this implementation in your own work, please cite the accompanying paper:
+[Your citation block here — same as in the repository bib file]
+________________________________________
+6. Contact
+Questions, discussions, or pull requests are welcome.
+This repository is meant to serve as a transparent and reproducible reference for the instanton construction described in the paper.
+________________________________________
 
-Repository Structure
-- `instanton_solver.py`: Python implementation using SciPy for ODE integration and shooting.
-- (Optional) Data outputs: CSV files generated from runs (e.g., trajectory data for \(b_E(\tau_E)\), \(S_E\)).
-
- Physical Background
-In the reduced Kantowski-Sachs minisuperspace, the Lorentzian black hole interior is Wick-rotated to a Euclidean sector with polymerization (holonomy corrections inspired by LQG). The code solves the first-order system:
-\[
-\frac{db_E}{d\tau} = \frac{1}{G} \frac{\sin(\lambda c_E)}{\lambda}, \quad \frac{dc_E}{d\tau} = \frac{1}{G} b_E \cos(\lambda c_E), \quad \dots
-\]
-with boundary conditions at the bounce (\(b_E = \gamma\), \(c_E = 0\), \(p_c = \gamma^2\)) and horizon (\(b_E = 2GM\), \(p_b = (2GM)^2\)). The Euclidean action \(S_E\) is computed via trapezoidal integration of the canonical terms, yielding the mass scaling \(S_E \propto M^{2+\delta}\) (with \(\delta \approx 0.1-0.18\)), crucial for tunneling lifetimes in quantum cosmology.
-
-This model avoids singularities, providing a mathematically consistent saddle point for the gravitational path integral, with implications for black hole evaporation and gravitational-wave echoes.
-
-Requirements
-- **Python Version**: 3.8+ (tested on 3.12.3 as per available environments).
-  - Libraries: NumPy, SciPy (for `solve_ivp` and numerical integration).
-
-No additional installations are needed beyond these, as the code avoids external dependencies like pip installs for internet-restricted environments.
-
-Installation
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/euclidean-instanton-black-hole.git
-   cd euclidean-instanton-black-hole
-   ```
-2. Ensure NumPy and SciPy are installed (pre-installed in many scientific environments).
-
-Usage
-Run the code to solve for the instanton and compute \(S_E\) for a given black hole mass \(M\).
-
-- **Python Example**:
-  ```python
-  # Run the main block for M=30.0
-  python instanton_solver.py
-  ```
-  Output (example):
-  ```
-  Converged pb0 = 178.245  # Approximate value; depends on guess
-  Action S_E = 350.12     # Bulk action for M=30, λ=0.03
-  ```
-  Adjust `pb0_guess` in `find_solution` for convergence (e.g., start with `(2*G*M)**2 * 0.05`).
-
-Key parameters:
-- `M`: Black hole mass (e.g., 30.0 for testing).
-- `λ`: Polymerization scale (default 0.03; tune for different quantum corrections).
-- `γ`: Immirzi parameter (default 0.2375, fixed from black hole entropy in LQG).
-- Numerical tolerances: `rtol=1e-10`, `atol=1e-12` for stiff ODEs.
-
-For custom runs, modify `if __name__ == "__main__":` to sweep \(M\) values and plot \(S_E(M)\) scaling (use Matplotlib for visualization).
-
-Numerical Diagnostics
-- Constraint violation: Monitored via equivalent checks in Python; ensure \(|\mathcal{H}_E| < 10^{-9}\).
-- Convergence: Shooting uses Newton iteration with finite-difference Jacobian; test with varying `eps` for stability.
-- Potential issues: For small \(\lambda\), equations stiffen—use adaptive solvers like Radau. If horizon event not triggered, increase `τmax`.
-
-Contributing
-Contributions are welcome! Fork the repo, create a branch, and submit a pull request. Focus on extensions like integrating RWZ equations for gravitational-wave echoes (as in Paper III) or cosmological parameter sweeps (Paper IV). Ensure changes maintain mathematical consistency with the Euclidean Hamiltonian.
-
-License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-Acknowledgments
-Inspired by works in loop quantum gravity (e.g., Ashtekar-Olmedo-Singh 2018) and black hole phenomenology. 
-
-If you use this code in your research, please cite the associated paper. Contact the author for questions on black hole bounces or quantum cosmology applications.
