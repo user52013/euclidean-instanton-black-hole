@@ -1,8 +1,6 @@
 # scan_SE.py
 #
-# This script scans S_E(M, delta) for several values of M and delta
-# using the instanton_solver.py module.
-#
+# Scan S_E(M, delta) for several values of M and delta.
 # Usage:
 #     python scan_SE.py > scan_output.txt
 
@@ -21,14 +19,20 @@ for M in M_list:
     for delta in delta_list:
         print(f"\n[Running] M={M}, delta={delta}")
 
-        # Find p_b(0)
-        p_b0 = find_shooting_solution(M, delta)
+        try:
+            # 1) Find p_b(0)
+            p_b0 = find_shooting_solution(M, delta)
 
-        # Solve trajectory
-        sol = solve_instanton(M, delta, p_b0)
+            # 2) Solve trajectory
+            sol = solve_instanton(M, delta, p_b0)
 
-        # Compute Euclidean actions
-        S_E, S_bulk = compute_actions(sol, M, delta, p_b0)
+            # 3) Compute Euclidean actions
+            S_E, S_bulk = compute_actions(sol, M, delta, p_b0)
 
-        # Print in machine-friendly format
-        print(f"{M}, {delta}, {S_E}, {S_bulk}")
+            # 4) Print result in machine-friendly format
+            print(f"{M}, {delta}, {S_E}, {S_bulk}")
+
+        except Exception as e:
+            # If this (M, delta) point fails (e.g. bracket not found), skip it
+            print(f"# WARNING: failed for M={M}, delta={delta}: {type(e).__name__}: {e}")
+            continue
