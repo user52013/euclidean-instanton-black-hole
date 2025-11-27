@@ -1,4 +1,4 @@
-
+[![CI Validation Status](https://github.com/justinleemyer-alt/euclidean-instanton-black-hole/workflows/CI%20Validation/badge.svg)](https://github.com/justinleemyer-alt/euclidean-instanton-black-hole/actions)
 # Euclidean Instanton Solver for Polymer-Corrected Black-Hole Interiors
 
 This repository contains a self-contained Python implementation of the Euclidean instanton construction developed in our accompanying manuscript.
