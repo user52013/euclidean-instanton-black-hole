@@ -3,10 +3,10 @@ name: Numerical Validation (Reproducibility Check)
 on:
   # 每次推送到主分支（main 或 master）時觸發
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   # 每次發起拉取請求（Pull Request）時觸發
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
   test_instanton_solver:
