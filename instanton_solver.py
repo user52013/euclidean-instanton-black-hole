@@ -119,7 +119,7 @@ def shooting_residual(p_b0: float, M: float, delta: float) -> float:
 
 
 # ----------------------------------------------------------------------
-# Automatic Bracket Finder (修復 ValueError)
+# Automatic Bracket Finder 
 # ----------------------------------------------------------------------
 def find_bracket(M: float, delta: float, p_min: float = 1.0, num: int = 50) -> Tuple[float, float]:
     """
