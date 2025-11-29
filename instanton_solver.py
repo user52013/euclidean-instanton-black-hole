@@ -1,3 +1,49 @@
+"""
+Euclidean instanton solver for the polymer-corrected 
+Kantowski–Sachs (KS) interior model.
+
+----------------------------------------------------------------------
+Physical Units and Normalization
+----------------------------------------------------------------------
+
+All computations in this code are performed in natural Planck units:
+
+    c = ℏ = k_B = 1 ,
+    G = 1 .
+
+Consequently:
+
+• Mass, length, and time are expressed in multiples of the Planck scales
+  (m_Pl, ℓ_Pl, t_Pl).
+
+• The canonical variables (b_E, c_E; p_b, p_c), Euclidean proper time τ_E,
+  and the Hamiltonian constraint C^(E,δ) are all dimensionless.
+
+• The Euclidean action S_E is likewise dimensionless, consistent with the 
+  instanton path-integral normalization used in the accompanying paper.
+
+This normalization matches Appendix C of the manuscript and ensures that
+the numerical output (constraint violation, shooting residual, and 
+bulk–boundary cancellation) is directly comparable to the analytical 
+expressions derived in Secs. III–V.
+
+----------------------------------------------------------------------
+Code Summary
+----------------------------------------------------------------------
+
+This solver integrates the Euclidean equations of motion using:
+
+• Radau IIA (order 5/9) stiff ODE solver,
+• boundary shooting to determine the unique initial momentum p_b(0),
+• Gauss–Legendre quadrature for the bulk action,
+• polymer (holonomy) substitutions applied after Wick rotation.
+
+All results are validated through a continuous-integration (CI) workflow,
+ensuring reproducibility of Euclidean instanton profiles and actions.
+
+"""
+
+
 import sys
 import numpy as np
 from numpy import sin, cos
