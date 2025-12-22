@@ -1,6 +1,6 @@
 """
 Euclidean instanton solver for the polymer-corrected 
-Kantowski–Sachs (KS) interior model.
+Kantowski–Sachs (KS) interior model.(DOI 10.5281/zenodo.17788641)
 
 ----------------------------------------------------------------------
 Physical Units and Normalization
